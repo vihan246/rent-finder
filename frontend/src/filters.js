@@ -1,5 +1,5 @@
-// Mirrors backend/services/filters.py::apply_rent_bed_filters -- used only in
-// static-export mode, where there's no backend to filter the cached listings for us.
+// Mirrors backend/services/filters.py::apply_rent_bed_filters -- used to narrow the
+// already-fetched results client-side so tweaking rent/bed inputs doesn't re-query.
 export function applyRentBedFilters(listings, { minRent, maxRent, minBeds, maxBeds } = {}) {
   let result = listings
   if (minRent != null) result = result.filter((l) => l.rent != null && l.rent >= minRent)

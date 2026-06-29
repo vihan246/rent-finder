@@ -1,20 +1,17 @@
-from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 import config
-from services.cache import load_listings_cache, load_locations, merge_listing, save_listings_cache
-from services.filters import apply_rent_bed_filters
-from services.geo import filter_within_walk
-from services.rentcast import RentCastError, search_listings
+from services.cache import load_quota, save_quota
+from services.geocode import GeocodeError, search_addresses
+from services.rentcast import RentCastError
+from services.routing import RoutingError
+from services.search import run_search
 
 app = FastAPI(title="Rent Finder")
-
-# A 10-minute walk at ~3mph is ~0.5mi; query RentCast with a bit of margin around
-# each saved location, then trim to the real walk-time cutoff with filter_within_walk.
-REFRESH_RADIUS_MILES = 1.0
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,130 +21,83 @@ app.add_middleware(
 )
 
 
+class TetherLocation(BaseModel):
+    id: Optional[str] = None
+    label: Optional[str] = None
+    lat: float
+    lng: float
+
+
+class Commute(BaseModel):
+    mode: str = Field(pattern="^(walk|transit|drive)$")
+    max_minutes: float = Field(gt=0, le=120)
+    # "rail" => rail/subway/light-rail only; "bus" (or null) => include buses. Only
+    # meaningful when mode == "transit".
+    transit_modes: Optional[str] = None
+
+
+class SearchFilters(BaseModel):
+    min_rent: Optional[float] = None
+    max_rent: Optional[float] = None
+    min_beds: Optional[float] = None
+    max_beds: Optional[float] = None
+
+
+class SearchRequest(BaseModel):
+    locations: list[TetherLocation] = Field(min_length=1)
+    commute: Commute
+    filters: SearchFilters = SearchFilters()
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-@app.get("/debug/listings")
-async def debug_listings(
-    lat: float = Query(...),
-    lng: float = Query(...),
-    radius_miles: float = Query(5.0),
-    max_walk_minutes: Optional[float] = Query(None),
-    min_rent: Optional[float] = Query(None),
-    max_rent: Optional[float] = Query(None),
-    min_beds: Optional[float] = Query(None),
-    max_beds: Optional[float] = Query(None),
-    limit: int = Query(50),
-):
+@app.get("/geocode/search")
+async def geocode_search(q: str = Query(..., min_length=1), limit: int = Query(5, ge=1, le=10)):
     try:
-        listings = await search_listings(
-            latitude=lat,
-            longitude=lng,
-            radius_miles=radius_miles,
-            min_rent=min_rent,
-            max_rent=max_rent,
-            min_beds=min_beds,
-            max_beds=max_beds,
-            limit=limit,
+        suggestions = await search_addresses(q, limit=limit)
+    except GeocodeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"suggestions": suggestions}
+
+
+def _quota_snapshot(quota: dict[str, int]) -> dict[str, Any]:
+    return {
+        "rentcast_remaining": config.STARTING_QUOTA - quota["rentcast_used"],
+        "routing_remaining": config.ROUTING_STARTING_QUOTA - quota["routing_used"],
+    }
+
+
+@app.post("/search")
+async def search(req: SearchRequest):
+    """The only path that spends RentCast + Google Routes quota. Triggered exclusively
+    by an explicit user action (the frontend's 'Generate listings' button)."""
+    if not config.RENTCAST_API_KEY:
+        raise HTTPException(status_code=400, detail="RENTCAST_API_KEY is not set")
+    if not config.GOOGLE_ROUTES_API_KEY:
+        raise HTTPException(status_code=400, detail="GOOGLE_ROUTES_API_KEY is not set")
+
+    quota = load_quota()
+    if quota["rentcast_used"] >= config.STARTING_QUOTA:
+        raise HTTPException(status_code=429, detail="RentCast quota estimate exhausted")
+    if quota["routing_used"] >= config.ROUTING_STARTING_QUOTA:
+        raise HTTPException(status_code=429, detail="Routing quota estimate exhausted")
+
+    try:
+        result = await run_search(
+            [loc.model_dump() for loc in req.locations],
+            req.commute.model_dump(),
+            req.filters.model_dump(),
         )
     except RentCastError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=f"RentCast error: {exc}") from exc
+    except RoutingError as exc:
+        raise HTTPException(status_code=502, detail=f"Routing error: {exc}") from exc
 
-    if max_walk_minutes is not None:
-        listings = filter_within_walk(listings, (lat, lng), max_walk_minutes)
+    quota["rentcast_used"] += result["rentcast_requests_used"]
+    quota["routing_used"] += result["routing_elements_used"]
+    save_quota(quota)
 
-    return {"count": len(listings), "listings": listings}
-
-
-@app.get("/locations")
-async def get_locations():
-    try:
-        locations = load_locations()
-    except FileNotFoundError:
-        return {"locations": []}
-    return {"locations": locations}
-
-
-@app.get("/listings/cached")
-async def get_cached_listings(
-    min_rent: Optional[float] = Query(None),
-    max_rent: Optional[float] = Query(None),
-    min_beds: Optional[float] = Query(None),
-    max_beds: Optional[float] = Query(None),
-):
-    """Reads the on-disk cache only. Never calls RentCast -- safe to call on every
-    page load and every filter change."""
-    cache = load_listings_cache()
-    all_listings = list(cache["listings"].values())
-    filtered = apply_rent_bed_filters(
-        all_listings, min_rent=min_rent, max_rent=max_rent, min_beds=min_beds, max_beds=max_beds
-    )
-    return {
-        "last_refreshed_at": cache["last_refreshed_at"],
-        "quota_estimate_remaining": cache["quota_estimate_remaining"],
-        "locations": cache["locations"],
-        "count": len(filtered),
-        "listings": filtered,
-    }
-
-
-@app.post("/listings/refresh")
-async def refresh_listings():
-    """The only code path that calls RentCast for the saved locations. Triggered
-    exclusively by an explicit user action (the frontend's Refresh button), never
-    automatically."""
-    try:
-        locations = load_locations()
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    new_listings: dict = {}
-    location_summaries = []
-    errors = []
-
-    for loc in locations:
-        try:
-            raw = await search_listings(
-                latitude=loc["lat"],
-                longitude=loc["lng"],
-                radius_miles=REFRESH_RADIUS_MILES,
-                limit=100,
-            )
-        except RentCastError as exc:
-            errors.append({"location_id": loc["id"], "error": str(exc)})
-            location_summaries.append({**loc, "raw_listing_ids": []})
-            continue
-
-        walked = filter_within_walk(
-            raw, (loc["lat"], loc["lng"]), loc.get("max_walk_minutes", 10)
-        )
-        for listing in walked:
-            merge_listing(new_listings, listing, loc["id"], loc["label"], listing["walk_minutes"])
-        location_summaries.append({**loc, "raw_listing_ids": [l["id"] for l in walked]})
-
-    prior = load_listings_cache()
-    prior_ids = set(prior.get("listings", {}).keys())
-    new_ids = set(new_listings.keys()) - prior_ids
-    for listing_id in new_ids:
-        new_listings[listing_id]["is_new"] = True
-
-    requests_used_total = prior.get("requests_used_total", 0) + len(locations)
-
-    cache = {
-        "last_refreshed_at": datetime.now(timezone.utc).isoformat(),
-        "requests_used_total": requests_used_total,
-        "quota_estimate_remaining": config.STARTING_QUOTA - requests_used_total,
-        "locations": location_summaries,
-        "listings": new_listings,
-    }
-    save_listings_cache(cache)
-
-    return {
-        **cache,
-        "errors": errors,
-        "count": len(new_listings),
-        "new_count": len(new_ids),
-        "listings": list(new_listings.values()),
-    }
+    return {**result, **_quota_snapshot(quota)}

@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import { IS_STATIC_MODE, getCachedListings, getStaticListings } from './api'
+import { useMemo, useState } from 'react'
+import { searchListings } from './api'
+import { applyRentBedFilters } from './filters'
+import CommutePanel from './components/CommutePanel'
 import ListingCard from './components/ListingCard'
 import ListingsMap from './components/ListingsMap'
-import RefreshButton from './components/RefreshButton'
+import LocationSearch from './components/LocationSearch'
 
-const fetchListings = IS_STATIC_MODE ? getStaticListings : getCachedListings
-
+const DEFAULT_COMMUTE = { mode: 'walk', maxMinutes: 10, transitModes: 'rail' }
 const DEFAULT_FILTERS = { minRent: '', maxRent: '', minBeds: '', maxBeds: '' }
 
 function toNumberOrUndefined(value) {
@@ -15,68 +16,75 @@ function toNumberOrUndefined(value) {
 }
 
 function ListingsView() {
+  const [locations, setLocations] = useState([])
+  const [commute, setCommute] = useState(DEFAULT_COMMUTE)
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
-  // Client-side toggle over the already-fetched listings -- the backend's
-  // /listings/cached has no is_new param, so we filter on the `is_new` flag here.
-  const [onlyNew, setOnlyNew] = useState(false)
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // In static mode this reads the bundled public/listings.json; otherwise it hits
-  // the local cache (GET /listings/cached). Neither ever calls RentCast -- safe to
-  // run on every mount and every filter change, including StrictMode's double-invoke.
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      setLoading(true)
-      fetchListings({
-        minRent: toNumberOrUndefined(filters.minRent),
-        maxRent: toNumberOrUndefined(filters.maxRent),
-        minBeds: toNumberOrUndefined(filters.minBeds),
-        maxBeds: toNumberOrUndefined(filters.maxBeds),
-      })
-        .then((res) => {
-          setData(res)
-          setError(null)
-        })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false))
-    }, 300)
-    return () => clearTimeout(handle)
-  }, [filters])
+  const addLocation = (suggestion) => {
+    const id = `${suggestion.lat},${suggestion.lng}`
+    setLocations((prev) =>
+      prev.some((l) => l.id === id) ? prev : [...prev, { ...suggestion, id }]
+    )
+  }
+  const removeLocation = (id) =>
+    setLocations((prev) => prev.filter((l) => l.id !== id))
 
-  const handleFilterChange = (field) => (e) => {
+  const handleFilterChange = (field) => (e) =>
     setFilters((prev) => ({ ...prev, [field]: e.target.value }))
+
+  const handleSubmit = () => {
+    if (locations.length === 0 || loading) return
+    setLoading(true)
+    const payload = {
+      locations: locations.map(({ id, label, lat, lng }) => ({ id, label, lat, lng })),
+      commute: {
+        mode: commute.mode,
+        max_minutes: Number(commute.maxMinutes) || 10,
+        ...(commute.mode === 'transit' ? { transit_modes: commute.transitModes } : {}),
+      },
+      filters: {
+        min_rent: toNumberOrUndefined(filters.minRent) ?? null,
+        max_rent: toNumberOrUndefined(filters.maxRent) ?? null,
+        min_beds: toNumberOrUndefined(filters.minBeds) ?? null,
+        max_beds: toNumberOrUndefined(filters.maxBeds) ?? null,
+      },
+    }
+    searchListings(payload)
+      .then((res) => {
+        setResult(res)
+        setError(null)
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
   }
 
-  const allListings = data?.listings ?? []
-  const listings = onlyNew ? allListings.filter((l) => l.is_new) : allListings
-  const locations = data?.locations ?? []
+  // Rent/bed inputs narrow the already-fetched results client-side, so tweaking them
+  // doesn't re-spend quota -- only "Generate listings" hits the backend.
+  const visibleListings = useMemo(() => {
+    if (!result) return []
+    return applyRentBedFilters(result.listings ?? [], {
+      minRent: toNumberOrUndefined(filters.minRent),
+      maxRent: toNumberOrUndefined(filters.maxRent),
+      minBeds: toNumberOrUndefined(filters.minBeds),
+      maxBeds: toNumberOrUndefined(filters.maxBeds),
+    })
+  }, [result, filters])
+
+  const resultLocations = result?.locations ?? locations
 
   return (
     <div className="listings-view">
-      <div className="status-bar">
-        <span>
-          {data?.last_refreshed_at
-            ? `Last refreshed: ${new Date(data.last_refreshed_at).toLocaleString()}`
-            : 'Never refreshed yet'}
-          {data?.new_count > 0 ? ` · ${data.new_count} new` : ''}
-        </span>
-        {!IS_STATIC_MODE && (
-          <>
-            <span>
-              {data?.quota_estimate_remaining != null
-                ? `~${data.quota_estimate_remaining} RentCast requests remaining`
-                : ''}
-            </span>
-            <RefreshButton
-              locationCount={locations.length}
-              quotaRemaining={data?.quota_estimate_remaining ?? null}
-              onRefreshed={setData}
-            />
-          </>
-        )}
-      </div>
+      <LocationSearch
+        locations={locations}
+        onAdd={addLocation}
+        onRemove={removeLocation}
+      />
+
+      <CommutePanel commute={commute} onChange={setCommute} />
 
       <div className="filters">
         <label>
@@ -95,31 +103,46 @@ function ListingsView() {
           Max beds
           <input type="number" value={filters.maxBeds} onChange={handleFilterChange('maxBeds')} />
         </label>
-        <label className="filter-checkbox">
-          <input
-            type="checkbox"
-            checked={onlyNew}
-            onChange={(e) => setOnlyNew(e.target.checked)}
-          />
-          New only
-        </label>
+      </div>
+
+      <div className="search-bar">
+        <button
+          type="button"
+          className="generate-button"
+          onClick={handleSubmit}
+          disabled={locations.length === 0 || loading}
+        >
+          {loading ? 'Generating…' : 'Generate listings'}
+        </button>
+        {result && (
+          <span className="search-meta">
+            {visibleListings.length} listing{visibleListings.length === 1 ? '' : 's'}
+            {result.routing_remaining != null
+              ? ` · ~${result.routing_remaining} routing / ${result.rentcast_remaining} RentCast left`
+              : ''}
+          </span>
+        )}
       </div>
 
       {error && <p className="error-text">Error: {error}</p>}
-      {loading && <p>Loading…</p>}
 
-      {!loading && !error && (
+      {!result && !loading && !error && (
+        <p className="empty-state">
+          Add one or more places above, pick a commute mode and time, then
+          “Generate listings”.
+        </p>
+      )}
+
+      {result && (
         <>
-          <ListingsMap listings={listings} locations={locations} />
+          <ListingsMap listings={visibleListings} locations={resultLocations} />
           <div className="listing-cards">
-            {listings.length === 0 ? (
-              <p>
-                {IS_STATIC_MODE
-                  ? 'No listings match these filters.'
-                  : 'No listings yet. Click "Refresh All" to fetch real results.'}
-              </p>
+            {visibleListings.length === 0 ? (
+              <p>No listings match within this commute and these filters.</p>
             ) : (
-              listings.map((listing) => <ListingCard key={listing.id} listing={listing} />)
+              visibleListings.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} />
+              ))
             )}
           </div>
         </>

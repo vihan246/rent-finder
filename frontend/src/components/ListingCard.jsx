@@ -27,7 +27,7 @@ function ListingCard({ listing }) {
       <div className="listing-tags">
         {(listing.near_locations ?? []).map((loc) => (
           <span key={loc.id} className="tag">
-            {loc.walk_minutes} min from {loc.label}
+            {loc.commute_minutes} min {loc.mode} from {loc.label}
           </span>
         ))}
       </div>

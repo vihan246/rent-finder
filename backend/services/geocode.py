@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 
 import config
@@ -11,18 +13,12 @@ class GeocodeError(Exception):
     pass
 
 
-async def geocode_address(address: str) -> tuple[float, float]:
-    """Looks up (lat, lng) for a free-text address via Nominatim (OpenStreetMap).
-
-    Free and keyless, but Nominatim's usage policy requires a descriptive
-    User-Agent and no more than ~1 request/second -- callers looping over
-    multiple addresses must space out their own calls.
-    """
+async def _nominatim_search(query: str, limit: int) -> list[dict[str, Any]]:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
                 NOMINATIM_URL,
-                params={"q": address, "format": "json", "limit": 1},
+                params={"q": query, "format": "json", "limit": limit},
                 headers={"User-Agent": config.GEOCODE_USER_AGENT},
             )
     except httpx.HTTPError as exc:
@@ -36,7 +32,44 @@ async def geocode_address(address: str) -> tuple[float, float]:
     except ValueError as exc:
         raise GeocodeError("Nominatim returned a non-JSON response") from exc
 
-    if not isinstance(results, list) or not results:
+    if not isinstance(results, list):
+        raise GeocodeError(f"Unexpected Nominatim result shape: {type(results)}")
+    return results
+
+
+async def search_addresses(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Autocomplete-style lookup: returns up to `limit` candidate locations as
+    {label, lat, lng} dicts. Powered by keyless Nominatim, so callers should debounce
+    keystrokes to respect its ~1 request/second usage policy.
+    """
+    query = query.strip()
+    if not query:
+        return []
+
+    suggestions: list[dict[str, Any]] = []
+    for result in await _nominatim_search(query, limit):
+        try:
+            suggestions.append(
+                {
+                    "label": result["display_name"],
+                    "lat": float(result["lat"]),
+                    "lng": float(result["lon"]),
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return suggestions
+
+
+async def geocode_address(address: str) -> tuple[float, float]:
+    """Looks up (lat, lng) for a free-text address via Nominatim (OpenStreetMap).
+
+    Free and keyless, but Nominatim's usage policy requires a descriptive
+    User-Agent and no more than ~1 request/second -- callers looping over
+    multiple addresses must space out their own calls.
+    """
+    results = await _nominatim_search(address, limit=1)
+    if not results:
         raise GeocodeError(f"No geocode results for address: {address!r}")
 
     try:

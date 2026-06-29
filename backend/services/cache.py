@@ -4,37 +4,29 @@ import json
 import os
 from typing import Any
 
-import config
-
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-LOCATIONS_PATH = os.path.join(DATA_DIR, "locations.json")
 LISTINGS_CACHE_PATH = os.path.join(DATA_DIR, "listings_cache.json")
+QUOTA_PATH = os.path.join(DATA_DIR, "quota.json")
 
 
-def load_locations() -> list[dict[str, Any]]:
-    if not os.path.exists(LOCATIONS_PATH):
-        raise FileNotFoundError(
-            f"{LOCATIONS_PATH} does not exist yet -- run scripts/seed_locations.py first"
-        )
-    with open(LOCATIONS_PATH, "r") as f:
-        return json.load(f)["locations"]
+def load_quota() -> dict[str, int]:
+    """Cumulative, self-tracked usage counters that persist across /search calls."""
+    if not os.path.exists(QUOTA_PATH):
+        return {"rentcast_used": 0, "routing_used": 0}
+    with open(QUOTA_PATH, "r") as f:
+        data = json.load(f)
+    return {
+        "rentcast_used": int(data.get("rentcast_used", 0)),
+        "routing_used": int(data.get("routing_used", 0)),
+    }
 
 
-def load_listings_cache() -> dict[str, Any]:
-    if not os.path.exists(LISTINGS_CACHE_PATH):
-        try:
-            locations = load_locations()
-        except FileNotFoundError:
-            locations = []
-        return {
-            "last_refreshed_at": None,
-            "requests_used_total": 0,
-            "quota_estimate_remaining": config.STARTING_QUOTA,
-            "locations": locations,
-            "listings": {},
-        }
-    with open(LISTINGS_CACHE_PATH, "r") as f:
-        return json.load(f)
+def save_quota(quota: dict[str, int]) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp_path = f"{QUOTA_PATH}.tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(quota, f, indent=2)
+    os.replace(tmp_path, QUOTA_PATH)
 
 
 def save_listings_cache(cache: dict[str, Any]) -> None:
@@ -50,13 +42,21 @@ def merge_listing(
     listing: dict[str, Any],
     location_id: str,
     location_label: str,
-    walk_minutes: float,
+    commute_minutes: float,
+    mode: str,
 ) -> None:
+    """ANY-match merge: a listing reachable from several tether locations is stored
+    once, accumulating one near_locations tag per location it qualifies under."""
     listing_id = listing["id"]
-    tag = {"id": location_id, "label": location_label, "walk_minutes": walk_minutes}
-    # walk_minutes is meaningful per-origin-location, so it lives in near_locations,
-    # not as a single top-level field on a listing that can be near several locations.
-    listing_fields = {k: v for k, v in listing.items() if k != "walk_minutes"}
+    tag = {
+        "id": location_id,
+        "label": location_label,
+        "commute_minutes": commute_minutes,
+        "mode": mode,
+    }
+    # commute_minutes is per-origin-location, so it lives in near_locations, not as a
+    # single top-level field on a listing that can be near several locations.
+    listing_fields = {k: v for k, v in listing.items() if k != "commute_minutes"}
 
     existing = cache_listings.get(listing_id)
     if existing is None:
