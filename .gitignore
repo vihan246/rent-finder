@@ -1,0 +1,19 @@
+# secrets
+.env
+backend/.env
+
+# personal location data (addresses, cached listings) -- not for version control
+backend/data/
+frontend/public/listings.json
+
+# python
+__pycache__/
+*.pyc
+backend/venv/
+
+# node
+node_modules/
+dist/
+
+# misc
+RentalFinder_ClaudeCode_PLAN.md
