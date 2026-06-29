@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { searchListings } from './api'
+import { useEffect, useMemo, useState } from 'react'
+import { IS_STATIC_MODE, getStaticSnapshot, searchListings } from './api'
 import { applyRentBedFilters } from './filters'
 import CommutePanel from './components/CommutePanel'
 import ListingCard from './components/ListingCard'
@@ -21,8 +21,18 @@ function ListingsView() {
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
 
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(IS_STATIC_MODE)
   const [error, setError] = useState(null)
+
+  // Static demo: there's no backend, so load the owner-generated snapshot once and
+  // render it read-only (the search controls below are hidden).
+  useEffect(() => {
+    if (!IS_STATIC_MODE) return
+    getStaticSnapshot()
+      .then((snap) => setResult(snap))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
 
   const addLocation = (suggestion) => {
     const id = `${suggestion.lat},${suggestion.lng}`
@@ -78,13 +88,16 @@ function ListingsView() {
 
   return (
     <div className="listings-view">
-      <LocationSearch
-        locations={locations}
-        onAdd={addLocation}
-        onRemove={removeLocation}
-      />
-
-      <CommutePanel commute={commute} onChange={setCommute} />
+      {!IS_STATIC_MODE && (
+        <>
+          <LocationSearch
+            locations={locations}
+            onAdd={addLocation}
+            onRemove={removeLocation}
+          />
+          <CommutePanel commute={commute} onChange={setCommute} />
+        </>
+      )}
 
       <div className="filters">
         <label>
@@ -106,14 +119,16 @@ function ListingsView() {
       </div>
 
       <div className="search-bar">
-        <button
-          type="button"
-          className="generate-button"
-          onClick={handleSubmit}
-          disabled={locations.length === 0 || loading}
-        >
-          {loading ? 'Generating…' : 'Generate listings'}
-        </button>
+        {!IS_STATIC_MODE && (
+          <button
+            type="button"
+            className="generate-button"
+            onClick={handleSubmit}
+            disabled={locations.length === 0 || loading}
+          >
+            {loading ? 'Generating…' : 'Generate listings'}
+          </button>
+        )}
         {result && (
           <span className="search-meta">
             {visibleListings.length} listing{visibleListings.length === 1 ? '' : 's'}
@@ -126,12 +141,14 @@ function ListingsView() {
 
       {error && <p className="error-text">Error: {error}</p>}
 
-      {!result && !loading && !error && (
+      {!result && !loading && !error && !IS_STATIC_MODE && (
         <p className="empty-state">
           Add one or more places above, pick a commute mode and time, then
           “Generate listings”.
         </p>
       )}
+
+      {loading && IS_STATIC_MODE && <p>Loading…</p>}
 
       {result && (
         <>

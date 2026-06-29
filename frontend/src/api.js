@@ -1,5 +1,18 @@
 export const API_BASE_URL = 'http://localhost:8000'
 
+// Static demo build (frontend/.env.production sets VITE_STATIC_MODE=true): no backend,
+// no keys, no search -- just the read-only snapshot the owner generated via make_demo.
+export const IS_STATIC_MODE = import.meta.env.VITE_STATIC_MODE === 'true'
+
+let staticSnapshotPromise = null
+
+export function getStaticSnapshot() {
+  if (!staticSnapshotPromise) {
+    staticSnapshotPromise = fetch('/listings.json').then(handleResponse)
+  }
+  return staticSnapshotPromise
+}
+
 async function handleResponse(res) {
   if (!res.ok) {
     let detail

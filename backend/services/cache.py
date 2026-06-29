@@ -29,6 +29,16 @@ def save_quota(quota: dict[str, int]) -> None:
     os.replace(tmp_path, QUOTA_PATH)
 
 
+def load_listings_cache() -> dict[str, Any]:
+    """Reads the snapshot written by the last run_search. Used by the demo export."""
+    if not os.path.exists(LISTINGS_CACHE_PATH):
+        raise FileNotFoundError(
+            f"{LISTINGS_CACHE_PATH} does not exist yet -- run a search first"
+        )
+    with open(LISTINGS_CACHE_PATH, "r") as f:
+        return json.load(f)
+
+
 def save_listings_cache(cache: dict[str, Any]) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     tmp_path = f"{LISTINGS_CACHE_PATH}.tmp"

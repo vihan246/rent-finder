@@ -67,6 +67,28 @@ then add locations, pick a commute, and generate listings.
   listings plus remaining quota estimates. `mode` ∈ `walk|transit|drive`;
   `transit_modes` is `"rail"` (rail/subway/light-rail only) or `"bus"` (include buses).
 
+## Static demo (this `static-demo` branch only)
+
+This branch adds a keyless, read-only snapshot mode for sharing a generated search
+with someone who has no backend or keys. `main` is the clean live-only app; this
+branch is what gets deployed to Vercel.
+
+Generate and deploy a demo in one command (needs your keys in `backend/.env`):
+
+```
+cd backend
+./venv/bin/python scripts/make_demo.py \
+    --address "Ferry Building, San Francisco, CA" \
+    --address "1 Market St, San Francisco, CA" \
+    --mode transit --minutes 15 --transit rail
+```
+
+It geocodes the addresses, runs a real `/search`, freezes the result into
+`frontend/public/listings.json`, builds, and deploys to your Vercel URL (which is
+overwritten each run). Add `--no-deploy` to just build the snapshot locally. The
+deployed page shows the listings read-only — no search controls, no quota spent by
+viewers.
+
 ## Hard rules
 
 - All secrets live in `.env` (gitignored), loaded server-side only.
