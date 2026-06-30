@@ -328,10 +328,56 @@
 }
 
 .location-marker-dot {
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid white;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  color: white;
+  font: 600 12px/1 system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.anchor-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.anchor-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 22rem;
+  font-size: 0.8rem;
+}
+
+.anchor-letter {
+  flex: none;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.anchor-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.listing-tags .tag {
+  cursor: help;
 }
