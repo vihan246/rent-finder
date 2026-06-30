@@ -7,7 +7,7 @@ function agentNameHref(agent) {
   return null
 }
 
-function ListingCard({ listing }) {
+function ListingCard({ listing, anchorLetters = {} }) {
   const agent = listing.agent
   const agentHref = agent ? agentNameHref(agent) : null
 
@@ -26,8 +26,8 @@ function ListingCard({ listing }) {
       <div className="listing-address">{listing.address}</div>
       <div className="listing-tags">
         {(listing.near_locations ?? []).map((loc) => (
-          <span key={loc.id} className="tag">
-            {loc.commute_minutes} min {loc.mode} from {loc.label}
+          <span key={loc.id} className="tag" title={loc.label}>
+            {Math.round(loc.commute_minutes)} min {loc.mode} from {anchorLetters[loc.id] ?? loc.label}
           </span>
         ))}
       </div>

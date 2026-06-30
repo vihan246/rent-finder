@@ -14,15 +14,18 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
-const locationIcon = L.divIcon({
-  className: 'location-marker',
-  html: '<div class="location-marker-dot"></div>',
-  iconSize: [16, 16],
-})
+function letterIcon(letter) {
+  return L.divIcon({
+    className: 'location-marker',
+    html: `<div class="location-marker-dot">${letter ?? ''}</div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  })
+}
 
 const DEFAULT_CENTER = [37.7749, -122.4194]
 
-function ListingsMap({ listings, locations }) {
+function ListingsMap({ listings, locations, anchorLetters = {} }) {
   const points = [
     ...locations.filter((l) => l.lat != null && l.lng != null).map((l) => [l.lat, l.lng]),
     ...listings.filter((l) => l.lat != null && l.lng != null).map((l) => [l.lat, l.lng]),
@@ -45,11 +48,9 @@ function ListingsMap({ listings, locations }) {
       {locations
         .filter((loc) => loc.lat != null && loc.lng != null)
         .map((loc) => (
-          <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={locationIcon}>
+          <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={letterIcon(anchorLetters[loc.id])}>
             <Popup>
-              <strong>{loc.label}</strong>
-              <br />
-              {loc.address}
+              <strong>{anchorLetters[loc.id] ? `${anchorLetters[loc.id]} — ` : ''}{loc.label}</strong>
             </Popup>
           </Marker>
         ))}

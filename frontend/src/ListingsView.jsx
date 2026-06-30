@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { searchListings } from './api'
 import { applyRentBedFilters } from './filters'
+import { buildAnchorLetters } from './anchors'
 import CommutePanel from './components/CommutePanel'
 import ListingCard from './components/ListingCard'
 import ListingsMap from './components/ListingsMap'
@@ -75,6 +76,7 @@ function ListingsView() {
   }, [result, filters])
 
   const resultLocations = result?.locations ?? locations
+  const anchorLetters = useMemo(() => buildAnchorLetters(resultLocations), [resultLocations])
 
   return (
     <div className="listings-view">
@@ -135,13 +137,29 @@ function ListingsView() {
 
       {result && (
         <>
-          <ListingsMap listings={visibleListings} locations={resultLocations} />
+          {resultLocations.length > 0 && (
+            <ol className="anchor-legend">
+              {resultLocations.map((loc) => (
+                <li key={loc.id}>
+                  <span className="anchor-letter">{anchorLetters[loc.id]}</span>
+                  <span className="anchor-label" title={loc.label}>
+                    {loc.label}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          <ListingsMap
+            listings={visibleListings}
+            locations={resultLocations}
+            anchorLetters={anchorLetters}
+          />
           <div className="listing-cards">
             {visibleListings.length === 0 ? (
               <p>No listings match within this commute and these filters.</p>
             ) : (
               visibleListings.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
+                <ListingCard key={listing.id} listing={listing} anchorLetters={anchorLetters} />
               ))
             )}
           </div>
