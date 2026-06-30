@@ -62,9 +62,10 @@ then add locations, pick a commute, and generate listings.
 
 - `GET /health` — liveness check.
 - `GET /geocode/search?q=` — keyless address autocomplete (Nominatim).
-- `POST /search` — body `{ locations: [{label,lat,lng}], commute: {mode, max_minutes,
-  transit_modes}, filters: {min_rent,max_rent,min_beds,max_beds} }`. Returns matching
-  listings plus remaining quota estimates. `mode` ∈ `walk|transit|drive`;
+- `POST /search` — body `{ locations: [{label,lat,lng}], criteria: [{mode, max_minutes,
+  transit_modes}], filters: {min_rent,max_rent,min_beds,max_beds} }`. `criteria` are
+  OR'd: a listing is returned if it satisfies any criterion from any location. Returns
+  matching listings plus remaining quota estimates. `mode` ∈ `walk|transit|drive`;
   `transit_modes` is `"rail"` (rail/subway/light-rail only) or `"bus"` (include buses).
 
 ## Static demo (this `static-demo` branch only)

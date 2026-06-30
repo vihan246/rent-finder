@@ -7,7 +7,7 @@ import ListingCard from './components/ListingCard'
 import ListingsMap from './components/ListingsMap'
 import LocationSearch from './components/LocationSearch'
 
-const DEFAULT_COMMUTE = { mode: 'walk', maxMinutes: 10, transitModes: 'rail' }
+const DEFAULT_CRITERIA = [{ mode: 'walk', maxMinutes: 10, transitModes: 'rail' }]
 const DEFAULT_FILTERS = { minRent: '', maxRent: '', minBeds: '', maxBeds: '' }
 
 function toNumberOrUndefined(value) {
@@ -18,7 +18,7 @@ function toNumberOrUndefined(value) {
 
 function ListingsView() {
   const [locations, setLocations] = useState([])
-  const [commute, setCommute] = useState(DEFAULT_COMMUTE)
+  const [criteria, setCriteria] = useState(DEFAULT_CRITERIA)
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
 
   const [result, setResult] = useState(null)
@@ -52,11 +52,11 @@ function ListingsView() {
     setLoading(true)
     const payload = {
       locations: locations.map(({ id, label, lat, lng }) => ({ id, label, lat, lng })),
-      commute: {
-        mode: commute.mode,
-        max_minutes: Number(commute.maxMinutes) || 10,
-        ...(commute.mode === 'transit' ? { transit_modes: commute.transitModes } : {}),
-      },
+      criteria: criteria.map((c) => ({
+        mode: c.mode,
+        max_minutes: Number(c.maxMinutes) || 10,
+        ...(c.mode === 'transit' ? { transit_modes: c.transitModes } : {}),
+      })),
       filters: {
         min_rent: toNumberOrUndefined(filters.minRent) ?? null,
         max_rent: toNumberOrUndefined(filters.maxRent) ?? null,
@@ -97,7 +97,7 @@ function ListingsView() {
             onAdd={addLocation}
             onRemove={removeLocation}
           />
-          <CommutePanel commute={commute} onChange={setCommute} />
+          <CommutePanel criteria={criteria} onChange={setCriteria} />
         </>
       )}
 

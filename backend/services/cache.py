@@ -55,8 +55,9 @@ def merge_listing(
     commute_minutes: float,
     mode: str,
 ) -> None:
-    """ANY-match merge: a listing reachable from several tether locations is stored
-    once, accumulating one near_locations tag per location it qualifies under."""
+    """ANY-match merge: a listing reachable from several tether locations (or the same
+    location via several commute modes) is stored once, accumulating one near_locations
+    tag per (location, mode) it qualifies under, keeping the smallest minutes seen."""
     listing_id = listing["id"]
     tag = {
         "id": location_id,
@@ -73,5 +74,9 @@ def merge_listing(
         cache_listings[listing_id] = {**listing_fields, "near_locations": [tag]}
         return
 
-    if not any(loc["id"] == location_id for loc in existing["near_locations"]):
-        existing["near_locations"].append(tag)
+    for loc in existing["near_locations"]:
+        if loc["id"] == location_id and loc["mode"] == mode:
+            if commute_minutes < loc["commute_minutes"]:
+                loc["commute_minutes"] = commute_minutes
+            return
+    existing["near_locations"].append(tag)

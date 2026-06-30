@@ -78,9 +78,10 @@ async def main() -> None:
         sys.exit("RENTCAST_API_KEY and GOOGLE_ROUTES_API_KEY must be set in backend/.env")
 
     locations = await geocode_all(args.address)
-    commute = {"mode": args.mode, "max_minutes": args.minutes}
+    criterion = {"mode": args.mode, "max_minutes": args.minutes}
     if args.mode == "transit":
-        commute["transit_modes"] = args.transit
+        criterion["transit_modes"] = args.transit
+    criteria = [criterion]
     filters = {
         "min_rent": args.min_rent,
         "max_rent": args.max_rent,
@@ -89,7 +90,7 @@ async def main() -> None:
     }
 
     print(f"\nSearching ({args.mode}, <= {args.minutes} min)…")
-    result = await run_search(locations, commute, filters)
+    result = await run_search(locations, criteria, filters)
     print(
         f"Found {result['count']} listings "
         f"(RentCast requests: {result['rentcast_requests_used']}, "

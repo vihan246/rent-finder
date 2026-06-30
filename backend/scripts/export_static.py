@@ -34,7 +34,7 @@ def export_static() -> str:
 
     snapshot = {
         "last_refreshed_at": cache.get("last_refreshed_at"),
-        "commute": cache.get("commute"),
+        "criteria": cache.get("criteria"),
         "locations": cache.get("locations", []),
         "listings": listings,
     }
