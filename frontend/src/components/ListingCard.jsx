@@ -26,7 +26,7 @@ function ListingCard({ listing, anchorLetters = {} }) {
       <div className="listing-address">{listing.address}</div>
       <div className="listing-tags">
         {(listing.near_locations ?? []).map((loc) => (
-          <span key={loc.id} className="tag" title={loc.label}>
+          <span key={`${loc.id}-${loc.mode}`} className="tag" title={loc.label}>
             {Math.round(loc.commute_minutes)} min {loc.mode} from {anchorLetters[loc.id] ?? loc.label}
           </span>
         ))}

@@ -11,26 +11,38 @@ from services.routing import travel_minutes_matrix
 RENTCAST_LIMIT = 100
 
 
+def _routing_key(criterion: dict[str, Any]) -> tuple[str, Optional[str]]:
+    """A criterion's distinct Google Routes call: mode, plus transit sub-mode when it's
+    transit (so 'transit rail' and 'transit bus' are separate, but two walk criteria
+    share one call)."""
+    mode = criterion["mode"]
+    return (mode, criterion.get("transit_modes") if mode == "transit" else None)
+
+
 async def run_search(
     locations: list[dict[str, Any]],
-    commute: dict[str, Any],
+    criteria: list[dict[str, Any]],
     filters: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Core search used by both POST /search and the demo script.
 
     For each tether location: pull nearby rentals from RentCast, cheaply pre-filter by
-    straight-line distance, then ask Google Routes for the real travel time in the
-    chosen mode and keep listings within the time budget (ANY-match across locations).
+    straight-line distance, then ask Google Routes for the real travel time for each
+    distinct commute mode. A listing is kept if it satisfies ANY criterion (OR) from
+    ANY location, carrying one tag per (location, mode) it qualifies under.
 
     Returns the merged listings plus usage counts so callers can manage quota. Also
     writes a listings_cache.json snapshot for the static export tooling.
     """
     filters = filters or {}
-    mode = commute["mode"]
-    max_minutes = float(commute["max_minutes"])
-    transit_modes = commute.get("transit_modes")
 
-    radius = prefilter_radius_miles(mode, max_minutes)
+    # Generous pre-filter radius: the widest reach across all criteria, so no candidate
+    # that any criterion could accept gets dropped before routing trims precisely.
+    radius = max(
+        prefilter_radius_miles(c["mode"], float(c["max_minutes"])) for c in criteria
+    )
+    # One routing call per distinct (mode, transit sub-mode); each criterion maps to one.
+    routing_keys = list({_routing_key(c) for c in criteria})
 
     merged: dict[str, Any] = {}
     location_summaries: list[dict[str, Any]] = []
@@ -61,21 +73,27 @@ async def run_search(
             continue
 
         origins = [(c["lat"], c["lng"]) for c in candidates]
-        grid = await travel_minutes_matrix(
-            origins, [origin], mode=mode, transit_modes=transit_modes
-        )
-        routing_elements_used += len(candidates)
 
-        for candidate, row in zip(candidates, grid):
-            minutes = row[0]
-            if minutes is not None and minutes <= max_minutes:
-                merge_listing(merged, candidate, loc_id, label, minutes, mode)
+        # Travel minutes per candidate, indexed by routing key (reused across criteria).
+        minutes_by_key: dict[tuple[str, Optional[str]], list] = {}
+        for mode, transit_modes in routing_keys:
+            grid = await travel_minutes_matrix(
+                origins, [origin], mode=mode, transit_modes=transit_modes
+            )
+            minutes_by_key[(mode, transit_modes)] = [row[0] for row in grid]
+            routing_elements_used += len(candidates)
+
+        for i, candidate in enumerate(candidates):
+            for criterion in criteria:
+                minutes = minutes_by_key[_routing_key(criterion)][i]
+                if minutes is not None and minutes <= float(criterion["max_minutes"]):
+                    merge_listing(merged, candidate, loc_id, label, minutes, criterion["mode"])
 
     now = datetime.now(timezone.utc).isoformat()
     save_listings_cache(
         {
             "last_refreshed_at": now,
-            "commute": commute,
+            "criteria": criteria,
             "locations": location_summaries,
             "listings": merged,
         }
@@ -83,7 +101,7 @@ async def run_search(
 
     return {
         "last_refreshed_at": now,
-        "commute": commute,
+        "criteria": criteria,
         "locations": location_summaries,
         "listings": list(merged.values()),
         "count": len(merged),

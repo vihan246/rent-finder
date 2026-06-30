@@ -29,6 +29,7 @@ class TetherLocation(BaseModel):
 
 
 class Commute(BaseModel):
+    """One commute criterion. The search ORs a list of these together."""
     mode: str = Field(pattern="^(walk|transit|drive)$")
     max_minutes: float = Field(gt=0, le=120)
     # "rail" => rail/subway/light-rail only; "bus" (or null) => include buses. Only
@@ -45,7 +46,8 @@ class SearchFilters(BaseModel):
 
 class SearchRequest(BaseModel):
     locations: list[TetherLocation] = Field(min_length=1)
-    commute: Commute
+    # OR'd together: a listing qualifies if it satisfies any criterion from any location.
+    criteria: list[Commute] = Field(min_length=1, max_length=6)
     filters: SearchFilters = SearchFilters()
 
 
@@ -88,7 +90,7 @@ async def search(req: SearchRequest):
     try:
         result = await run_search(
             [loc.model_dump() for loc in req.locations],
-            req.commute.model_dump(),
+            [c.model_dump() for c in req.criteria],
             req.filters.model_dump(),
         )
     except RentCastError as exc:
