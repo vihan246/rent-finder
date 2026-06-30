@@ -14,7 +14,9 @@ ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "http://localhost:5173")
 # header -- they're starting points decremented locally on each POST /search so a
 # fork can't silently burn through its free tier.
 STARTING_QUOTA = int(os.getenv("RENTCAST_STARTING_QUOTA", "46"))
-ROUTING_STARTING_QUOTA = int(os.getenv("ROUTING_STARTING_QUOTA", "1000"))
+# Google Routes is billed per matrix element (one per listing routed). A single
+# transit-heavy search can use several hundred, so this guardrail is generous.
+ROUTING_STARTING_QUOTA = int(os.getenv("ROUTING_STARTING_QUOTA", "40000"))
 
 GEOCODE_USER_AGENT = os.getenv(
     "GEOCODE_USER_AGENT", "rent-finder-app/1.0 (personal project; one-time geocoding)"
